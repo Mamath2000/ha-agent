@@ -1,0 +1,129 @@
+// Ce fichier contient la logique de découverte MQTT de l'ancien script PowerShell,
+// traduite en une structure d'objet JavaScript.
+// Il servira de modèle pour construire la configuration dans le hook Node.js.
+
+// Les variables comme `${deviceId}`, `${hostname}`, etc., seront remplacées
+// dynamiquement dans le code Node.js à partir des données reçues du client PowerShell.
+
+const baseTopic = "ha-agent"; // Le topic de base pour tous les agents
+
+function getDiscoveryConfig(deviceData) {
+    const deviceId = deviceData.device_id; // ex: "desktop-pc-aabbccddeeff"
+    const hostname = deviceData.hostname;   // ex: "DESKTOP-PC"
+
+    // Le topic d'état principal pour cet appareil
+    const stateTopic = `${baseTopic}/${deviceId}/state`;
+    // Le topic pour les capteurs de cet appareil
+    const sensorsTopic = `${baseTopic}/${deviceId}/sensors`;
+    // Le topic pour la disponibilité (online/offline)
+    const availabilityTopic = `${baseTopic}/${deviceId}/status`;
+
+    // Objet "device" commun à toutes les entités de cet appareil
+    const device = {
+        identifiers: [`ha_agent_${deviceId}`],
+        name: hostname,
+        model: "Windows PC Agent",
+        manufacturer: "Node.js Hook",
+        sw_version: "1.0.0", // Version du hook
+        connections: [
+            ["mac", deviceData.mac_address]
+        ]
+    };
+
+    // Définition de tous les capteurs et entités
+    const components = {
+        // --- Capteurs binaires ---
+        pc_running: {
+            platform: "mqtt",
+            name: `${hostname} Running`,
+            unique_id: `${deviceId}_pc_running`,
+            device_class: "running",
+            state_topic: availabilityTopic, // Utilise le statut de disponibilité
+            payload_on: "online",
+            payload_off: "offline",
+            device: device
+        },
+        users_logged_in: {
+            platform: "mqtt",
+            name: `${hostname} Users Logged In`,
+            unique_id: `${deviceId}_users_logged_in`,
+            device_class: "occupancy",
+            state_topic: stateTopic,
+            value_template: "{{ value_json.users_logged_in }}",
+            payload_on: "true",
+            payload_off: "false",
+            availability_topic: availabilityTopic,
+            device: device
+        },
+
+        // --- Capteurs de mesure ---
+        users_count: {
+            platform: "mqtt",
+            name: `${hostname} Users Count`,
+            unique_id: `${deviceId}_users_count`,
+            icon: "mdi:account-group",
+            state_topic: stateTopic,
+            value_template: "{{ value_json.logged_users_count }}",
+            state_class: "measurement",
+            availability_topic: availabilityTopic,
+            device: device
+        },
+        cpu_percent: {
+            platform: "mqtt",
+            name: `${hostname} CPU Usage`,
+            unique_id: `${deviceId}_cpu_percent`,
+            icon: "mdi:cpu-64-bit",
+            unit_of_measurement: "%",
+            state_topic: sensorsTopic,
+            value_template: "{{ value_json.cpu_percent }}",
+            state_class: "measurement",
+            availability_topic: availabilityTopic,
+            device: device
+        },
+        ram_percent: {
+            platform: "mqtt",
+            name: `${hostname} Memory Usage`,
+            unique_id: `${deviceId}_ram_percent`,
+            icon: "mdi:memory",
+            unit_of_measurement: "%",
+            state_topic: sensorsTopic,
+            value_template: "{{ value_json.ram_percent }}",
+            state_class: "measurement",
+            availability_topic: availabilityTopic,
+            device: device
+        },
+        disk_percent: {
+            platform: "mqtt",
+            name: `${hostname} Disk Usage`,
+            unique_id: `${deviceId}_disk_percent`,
+            icon: "mdi:harddisk",
+            unit_of_measurement: "%",
+            state_topic: sensorsTopic,
+            value_template: "{{ value_json.disk_percent }}",
+            state_class: "measurement",
+            availability_topic: availabilityTopic,
+            device: device
+        },
+
+        // --- Capteurs textuels ---
+        users_list: {
+            platform: "mqtt",
+            name: `${hostname} Logged Users`,
+            unique_id: `${deviceId}_users_list`,
+            icon: "mdi:account-details",
+            state_topic: stateTopic,
+            value_template: "{{ value_json.logged_users }}",
+            availability_topic: availabilityTopic,
+            device: device
+        }
+    };
+
+    return components;
+}
+
+// Le hook Node.js devra :
+// 1. Itérer sur chaque clé de `components` (ex: "pc_running", "cpu_percent").
+// 2. Construire le topic de découverte : `homeassistant/binary_sensor/ha_agent_${deviceId}_pc_running/config`
+//    ou `homeassistant/sensor/ha_agent_${deviceId}_cpu_percent/config`.
+//    Le type de composant (binary_sensor, sensor) est déduit du nom de la clé ou d'un champ dans la config.
+// 3. Publier la configuration JSON (l'objet `components[key]`) sur ce topic avec le flag RETAIN.

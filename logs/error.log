@@ -1,0 +1,5 @@
+[31;1mImport-Module: [0mC:\Users\Mamat\ha-agent\ha-agent.ps1:7[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m   7 | [0m [36;1mImport-Module PSMQTT[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe specified module 'PSMQTT' was not loaded because no valid module file was found in any module directory.[0m
