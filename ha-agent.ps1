@@ -3,11 +3,7 @@
 # Fonctionnalités : État PC, utilisateurs connectés, capteurs système
 # =============================================================================
 
-# Log de démarrage initial pour le débogage du service
-"Script démarré à $(Get-Date)" | Out-File -FilePath (Join-Path $PSScriptRoot "logs" "startup.log") -Append
-
 # --- IMPORTANT ---
-# Remplacez le chemin ci-dessous par le résultat de la commande 'Get-Module PSMQTT -ListAvailable | Select-Object Path'
 # =============================================================================
 # Script Home Assistant Agent pour Windows (Version Webhook)
 # Fonctionnalités : Envoi des données système à un hook Node.js
@@ -17,9 +13,10 @@
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-# L'URL de votre hook Node.js. À modifier lorsque le hook sera prêt.
+# L'URL de votre hook Node.js.
 $WebhookURL = "http://192.168.100.190:3000/ha-agent"
-$IntervalSeconds = 60                  # Intervalle entre les envois (secondes)
+$DataIntervalSeconds = 60  # Intervalle pour l'envoi des données complètes
+$PingIntervalSeconds = 10  # Intervalle pour le ping de présence
 
 # =============================================================================
 # FONCTIONS UTILITAIRES
@@ -126,24 +123,58 @@ function Get-SystemData {
 try {
     Write-Host ">> Demarrage HA-Agent (mode Webhook)"
     Write-Host "URL du Hook: $WebhookURL"
-    Write-Host "Intervalle: $IntervalSeconds secondes"
+    Write-Host "Intervalle Donnees: $DataIntervalSeconds secondes / Ping: $PingIntervalSeconds secondes"
     Write-Host "Appuyez sur Ctrl+C pour arreter."
     
+    $loopCounter = 0
+    $loopsPerDataSend = [math]::Round($DataIntervalSeconds / $PingIntervalSeconds)
+
     while ($true) {
-        $payload = Get-SystemData
-        $jsonPayload = $payload | ConvertTo-Json -Depth 5 -Compress
+        $deviceID = Get-DeviceID
+        $hostname = $env:COMPUTERNAME
+        $payload = $null
         
         try {
-            Write-Host "-> Envoi des donnees pour $($payload.hostname)..."
+            # Toutes les 60 secondes (ou au premier passage), envoyer les données complètes
+            if ($loopCounter % $loopsPerDataSend -eq 0) {
+                Write-Host "-> Collecte et envoi des donnees completes pour $hostname..."
+                $payload = Get-SystemData
+            } 
+            # Sinon, envoyer juste un ping
+            else {
+                Write-Host "-> Envoi du ping pour $hostname..."
+                $payload = @{
+                    device_id = $deviceID
+                    hostname = $hostname
+                    status = "online"
+                }
+            }
+
+            $jsonPayload = $payload | ConvertTo-Json -Depth 5 -Compress
             Invoke-RestMethod -Uri $WebhookURL -Method Post -Body $jsonPayload -ContentType 'application/json'
             Write-Host "OK. Donnees envoyees avec succes."
+
         } catch {
             Write-Host "ERREUR lors de l'envoi au webhook: $_" -ForegroundColor Red
+            # En cas d'erreur, on envoie un payload d'erreur au webhook
+            try {
+                $errorPayload = @{
+                    device_id = $deviceID
+                    hostname = $hostname
+                    status = "error"
+                    error = $_.Exception.Message
+                } | ConvertTo-Json -Depth 5 -Compress
+                Invoke-RestMethod -Uri $WebhookURL -Method Post -Body $errorPayload -ContentType 'application/json'
+                Write-Host "-> Notification d'erreur envoyee au webhook."
+            } catch {
+                Write-Host "ERREUR critique: Impossible de contacter le webhook pour signaler l'erreur." -ForegroundColor DarkRed
+            }
         }
         
-        Start-Sleep -Seconds $IntervalSeconds
+        Start-Sleep -Seconds $PingIntervalSeconds
+        $loopCounter++
     }
 }
 catch {
-    Write-Host "ERREUR critique: $_" -ForegroundColor Red
+    Write-Host "ERREUR critique non geree: $_" -ForegroundColor Red
 }

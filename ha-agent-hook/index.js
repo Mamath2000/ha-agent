@@ -21,6 +21,10 @@ const MQTT_USERNAME = config.mqtt_username;
 const MQTT_PASSWORD = config.mqtt_password;
 const BASE_TOPIC = 'ha-agent';
 
+// Cache pour suivre l'état et le dernier contact de chaque appareil
+const deviceStatus = {};
+const PING_TIMEOUT = 15000; // 15 secondes en millisecondes
+
 // =============================================================================
 // CONNEXION MQTT
 // =============================================================================
@@ -41,6 +45,20 @@ client.on('error', (err) => {
 
 // Cache en mémoire pour savoir quels appareils ont déjà été découverts
 const publishedDevices = new Set();
+
+// Fonction pour vérifier les appareils inactifs
+setInterval(() => {
+    const now = Date.now();
+    for (const deviceId in deviceStatus) {
+        if (deviceStatus[deviceId].status === 'online' && (now - deviceStatus[deviceId].lastSeen > PING_TIMEOUT)) {
+            console.log(`Appareil ${deviceId} considéré comme hors ligne (timeout).`);
+            deviceStatus[deviceId].status = 'offline';
+            const availabilityTopic = `${BASE_TOPIC}/${deviceId}/status`;
+            client.publish(availabilityTopic, 'offline', { retain: true });
+        }
+    }
+}, PING_TIMEOUT);
+
 
 // =============================================================================
 // LOGIQUE DE DÉCOUVERTE (inspirée de votre script original)
@@ -103,6 +121,14 @@ app.post('/ha-agent', (req, res) => {
 
   const deviceId = data.device_id;
 
+  // Mettre à jour le statut et le timestamp de l'appareil
+  if (!deviceStatus[deviceId]) {
+    deviceStatus[deviceId] = {};
+  }
+  deviceStatus[deviceId].lastSeen = Date.now();
+  deviceStatus[deviceId].status = 'online';
+
+
   // --- 1. Publication de la découverte (si c'est la première fois) ---
   if (!publishedDevices.has(deviceId)) {
     console.log(`Nouveau périphérique détecté: ${deviceId}. Publication de la découverte...`);
@@ -130,23 +156,35 @@ app.post('/ha-agent', (req, res) => {
   const stateTopic = `${BASE_TOPIC}/${deviceId}/state`;
   const sensorsTopic = `${BASE_TOPIC}/${deviceId}/sensors`;
 
-  // Disponibilité
+  // Toujours publier la disponibilité 'online' quand on reçoit des données
   client.publish(availabilityTopic, 'online', { retain: true });
 
-  // États principaux
-  const statePayload = {
-    users_logged_in: data.users_logged_in,
-    logged_users_count: data.logged_users_count,
-    logged_users: data.logged_users,
-  };
-  client.publish(stateTopic, JSON.stringify(statePayload));
+  // Si ce n'est pas juste un ping, publier les données
+  if (data.status !== 'online' && data.status !== 'error') {
+      // États principaux
+      const statePayload = {
+        users_logged_in: data.users_logged_in,
+        logged_users_count: data.logged_users_count,
+        logged_users: data.logged_users,
+      };
+      client.publish(stateTopic, JSON.stringify(statePayload));
 
-  // États des capteurs
-  if (data.sensors) {
-    client.publish(sensorsTopic, JSON.stringify(data.sensors));
+      // États des capteurs
+      if (data.sensors) {
+        client.publish(sensorsTopic, JSON.stringify(data.sensors));
+      }
+      console.log(`Données d'état complètes reçues et publiées pour ${deviceId}`);
+  } 
+  // Gérer le cas d'une erreur remontée par l'agent
+  else if (data.status === 'error') {
+      console.error(`Erreur remontée par l'agent ${deviceId}: ${data.error}`);
+      // Ici, vous pourriez publier sur un topic d'erreur spécifique si nécessaire
+  }
+  // C'est un simple ping, on ne fait rien de plus
+  else {
+      console.log(`Ping reçu de ${deviceId}.`);
   }
   
-  console.log(`Données d'état reçues et publiées pour ${deviceId}`);
   res.status(200).send('Données reçues');
 });
 
