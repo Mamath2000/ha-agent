@@ -6,11 +6,66 @@
 # Import du module PSMQTT
 Import-Module PSMQTT
 
+# =============================================================================
+# FONCTIONS UTILITAIRES
+# =============================================================================
+
+function Get-PrimaryMacAddress {
+    try {
+        # Récupérer l'interface réseau active avec une adresse IP
+        $activeAdapter = Get-CimInstance Win32_NetworkAdapter | Where-Object {
+            $_.NetEnabled -eq $true -and 
+            $_.AdapterTypeId -eq 0 -and  # Ethernet
+            $_.MACAddress -ne $null -and
+            $_.MACAddress -ne "" -and
+            $_.MACAddress -notlike "*00-00-00-00-00-00*"
+        } | Select-Object -First 1
+        
+        if ($activeAdapter -and $activeAdapter.MACAddress) {
+            # Convertir au format standard avec deux-points
+            return $activeAdapter.MACAddress.Replace("-", ":").ToLower()
+        }
+        
+        # Fallback: prendre la première interface avec MAC valide
+        $fallbackAdapter = Get-CimInstance Win32_NetworkAdapter | Where-Object {
+            $_.MACAddress -ne $null -and 
+            $_.MACAddress -ne "" -and
+            $_.MACAddress -notlike "*00-00-00-00-00-00*"
+        } | Select-Object -First 1
+        
+        if ($fallbackAdapter -and $fallbackAdapter.MACAddress) {
+            return $fallbackAdapter.MACAddress.Replace("-", ":").ToLower()
+        }
+        
+        return $null
+    }
+    catch {
+        Write-Host "⚠️ Impossible de récupérer l'adresse MAC: $_" -ForegroundColor Yellow
+        return $null
+    }
+}
+
 # Configuration MQTT
 $MQTTBroker = "mqtt://192.168.100.9"
 $MQTTUser = ""
 $MQTTPassword = ""
-$ClientID = "DarkFragtal"
+
+# Génération automatique du Client ID basé sur le nom de machine + MAC
+function Get-ClientID {
+    $hostname = $env:COMPUTERNAME
+    $macAddress = Get-PrimaryMacAddress
+    
+    if ($macAddress) {
+        # Enlever les deux-points de la MAC
+        $macClean = $macAddress.Replace(":", "")
+        return "$hostname-$macClean"
+    } else {
+        # Fallback sur hostname seul si pas de MAC
+        return $hostname
+    }
+}
+
+$ClientID = Get-ClientID
 $BaseTopic = "ha-agent"
 
 # Configuration de sécurité (PAR DÉFAUT SÉCURISÉ)
@@ -129,93 +184,12 @@ function Get-SystemStats {
 # FONCTIONS DE CONTRÔLE À DISTANCE
 # =============================================================================
 
-function Invoke-RemoteCommand([string]$command, [switch]$ConfirmExecution) {
-
-    # Autoriser uniquement la commande sûre 'lock' ; tout le reste est bloqué
-    $allowed = @('lock')
-
-    Write-Host "Commande reçue: '$command'" -ForegroundColor Yellow
-
-    if ($allowed -notcontains $command.ToLower()) {
-        Write-Host "🚫 Cette commande est bloquée pour la sécurité. Seule 'lock' est autorisée." -ForegroundColor Red
-        return
-    }
-
-    switch ($command.ToLower()) {
-        'lock' {
-            Write-Host "🔒 Commande 'lock' reçue." -ForegroundColor Cyan
-            if ($ConfirmExecution) {
-                Write-Host "Exécution confirmée : verrouillage en cours..." -ForegroundColor Green
-                Invoke-LockWorkstation
-            }
-            else {
-                Write-Host "Simulation : pour verrouiller réellement, appelez Invoke-RemoteCommand 'lock' -ConfirmExecution" -ForegroundColor Yellow
-            }
-        }
-        default {
-            Write-Host "Commande non reconnue ou non autorisée : $command" -ForegroundColor Red
-        }
-    }
+# Fonction pour republier la découverte MQTT manuellement
+function Invoke-RepublishDiscovery {
+    Write-Host "📡 Republication de la découverte MQTT..." -ForegroundColor Magenta
+    Publish-HADiscovery -ClientID $ClientID -BaseTopic $BaseTopic
 }
 
-# Fonction pour rafraîchir et republier tous les capteurs
-function Invoke-RefreshSensors {
-    Write-Host "🔄 Rafraîchissement des capteurs en cours..." -ForegroundColor Cyan
-    
-    # Recalculer toutes les données
-    $pcRunning = Test-PCRunning
-    $usersLoggedIn = Test-UsersLoggedIn
-    $loggedUsers = Get-LoggedUsers
-    $stats = Get-SystemStats
-    
-    # Republier toutes les données
-    Publish-MQTT "$BaseTopic/$ClientID/state/pc_running" $pcRunning
-    Publish-MQTT "$BaseTopic/$ClientID/state/users_logged_in" $usersLoggedIn
-    Publish-MQTT "$BaseTopic/$ClientID/state/logged_users" ($loggedUsers -join ",")
-    Publish-MQTT "$BaseTopic/$ClientID/state/logged_users_count" $loggedUsers.Count
-    
-    if ($stats.Count -gt 0) {
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/cpu_percent" $stats.cpu_percent
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/ram_total_gb" $stats.ram_total_gb
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/ram_used_gb" $stats.ram_used_gb
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/ram_free_gb" $stats.ram_free_gb
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/ram_percent" $stats.ram_percent
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/disk_total_gb" $stats.disk_total_gb
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/disk_used_gb" $stats.disk_used_gb
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/disk_free_gb" $stats.disk_free_gb
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/disk_percent" $stats.disk_percent
-        Publish-MQTT "$BaseTopic/$ClientID/sensor/updates_pending" $stats.updates_pending
-    }
-    
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Publish-MQTT "$BaseTopic/$ClientID/sensor/last_refresh" $timestamp
-    
-    Write-Host "✅ Capteurs rafraîchis avec succès !" -ForegroundColor Green
-}
-
-# =============================================================================
-# VERROUILLER LA SESSION (SAFE)
-# =============================================================================
-function Invoke-LockWorkstation {
-    try {
-        # Définir l'API LockWorkStation
-        $signature = @'
-        [DllImport("user32.dll")]
-        public static extern bool LockWorkStation();
-'@
-        Add-Type -MemberDefinition $signature -Name "Win32Lock" -Namespace Win32Utils -ErrorAction SilentlyContinue
-
-        if ([Win32Utils.Win32Lock]::LockWorkStation()) {
-            Write-Host "🔒 Écran verrouillé." -ForegroundColor Green
-        }
-        else {
-            Write-Host "⚠️ Impossible de verrouiller l'écran (peut nécessiter des privilèges)." -ForegroundColor Yellow
-        }
-    }
-    catch {
-        Write-Host "❌ Erreur lors du verrouillage : $_" -ForegroundColor Red
-    }
-}
 
 
 # Fonction pour afficher le statut système
@@ -259,14 +233,34 @@ function Get-HADiscoveryConfig {
     $clientIdLower = $ClientID.ToLower()
     
     $hostname = $env:COMPUTERNAME
+    $hostnameLower = $hostname.ToLower()
+    $macAddress = Get-PrimaryMacAddress
+    
+    # Préparer les connexions du device (liste d'entrées: [ [type, value], ... ])
+    $deviceConnections = @()
+    if ($macAddress) {
+        # Ajouter une entrée en tant que tableau ["mac", "aa:bb:cc:..."]
+        $deviceConnections += ,@("mac", $macAddress)
+        Write-Host "🔗 Adresse MAC détectée: $macAddress" -ForegroundColor Cyan
+    }
+    
+    # Créer la structure device de base
+    $deviceConfig = @{
+        identifiers = @("ha_agent_$clientIdLower")
+        name = "$hostname ($ClientID)"
+        model = "Windows PC"
+        manufacturer = "Microsoft"
+        sw_version = (Get-CimInstance Win32_OperatingSystem).Version
+    }
+    
+    # Ajouter les connexions si au moins une entrée est disponible
+    if ($deviceConnections.Count -gt 0) {
+        # $deviceConnections est déjà une liste d'entrées (arrays)
+        $deviceConfig.connections = $deviceConnections
+    }
+    
     $discoveryConfig = @{
-        device = @{
-            identifiers = @("ha_agent_$clientIdLower")
-            name = "$hostname ($ClientID)"
-            model = "Windows PC"
-            manufacturer = "Microsoft"
-            sw_version = (Get-CimInstance Win32_OperatingSystem).Version
-        }
+        device = $deviceConfig
         origin = @{
             name = "HA-Agent PowerShell"
         }
@@ -276,7 +270,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_pc_running" = @{
                 platform = "binary_sensor"
                 unique_id = "${clientIdLower}_pc_running"
-                default_entity_id = "${clientIdLower}_pc_running"
+                object_id = "${hostnameLower}_pc_running"
                 has_entity_name = $true
                 force_update = $true
                 name = "PC Running"
@@ -292,7 +286,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_users_logged_in" = @{
                 platform = "binary_sensor"
                 unique_id = "${clientIdLower}_users_logged_in"
-                default_entity_id = "${clientIdLower}_users_logged_in"
+                object_id = "${hostnameLower}_users_logged_in"
                 has_entity_name = $true
                 force_update = $true
                 name = "Users Logged In"
@@ -308,7 +302,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_users_count" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_users_count"
-                default_entity_id = "${clientIdLower}_users_count"
+                object_id = "${hostnameLower}_users_count"
                 has_entity_name = $true
                 force_update = $true
                 name = "Users Count"
@@ -322,7 +316,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_users_list" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_users_list"
-                default_entity_id = "${clientIdLower}_users_list"
+                object_id = "${hostnameLower}_users_list"
                 has_entity_name = $true
                 force_update = $true
                 name = "Logged Users"
@@ -335,7 +329,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_cpu_percent" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_cpu_percent"
-                default_entity_id = "${clientIdLower}_cpu_percent"
+                object_id = "${hostnameLower}_cpu_percent"
                 has_entity_name = $true
                 force_update = $true
                 name = "CPU Usage"
@@ -351,7 +345,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_ram_percent" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_ram_percent"
-                default_entity_id = "${clientIdLower}_ram_percent"
+                object_id = "${hostnameLower}_ram_percent"
                 has_entity_name = $true
                 force_update = $true
                 name = "Memory Usage"
@@ -367,7 +361,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_ram_total" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_ram_total"
-                default_entity_id = "${clientIdLower}_ram_total"
+                object_id = "${hostnameLower}_ram_total"
                 has_entity_name = $true
                 force_update = $true
                 name = "Memory Total"
@@ -383,7 +377,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_ram_used" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_ram_used"
-                default_entity_id = "${clientIdLower}_ram_used"
+                object_id = "${hostnameLower}_ram_used"
                 has_entity_name = $true
                 force_update = $true
                 name = "Memory Used"
@@ -399,7 +393,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_disk_percent" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_disk_percent"
-                default_entity_id = "${clientIdLower}_disk_percent"
+                object_id = "${hostnameLower}_disk_percent"
                 has_entity_name = $true
                 force_update = $true
                 name = "Disk Usage"
@@ -415,7 +409,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_disk_total" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_disk_total"
-                default_entity_id = "${clientIdLower}_disk_total"
+                object_id = "${hostnameLower}_disk_total"
                 has_entity_name = $true
                 force_update = $true
                 name = "Disk Total"
@@ -431,7 +425,7 @@ function Get-HADiscoveryConfig {
             "${clientIdLower}_updates_pending" = @{
                 platform = "sensor"
                 unique_id = "${clientIdLower}_updates_pending"
-                default_entity_id = "${clientIdLower}_updates_pending"
+                object_id = "${hostnameLower}_updates_pending"
                 has_entity_name = $true
                 force_update = $true
                 name = "Updates Pending"
@@ -439,70 +433,6 @@ function Get-HADiscoveryConfig {
                 value_template = "{{ value_json.updates_pending }}"
                 state_class = "measurement"
                 state_topic = "$BaseTopic/$ClientID/sensors"
-            }
-            
-            # Boutons de contrôle
-            "${clientIdLower}_reboot" = @{
-                platform = "button"
-                unique_id = "${clientIdLower}_reboot"
-                default_entity_id = "${clientIdLower}_reboot"
-                name = "Reboot"
-                command_topic = "$BaseTopic/$ClientID/command"
-                icon = "mdi:restart"
-                payload_press = '{"action":"reboot"}'
-                device_class = "restart"
-            }
-            
-            "${clientIdLower}_shutdown" = @{
-                platform = "button"
-                unique_id = "${clientIdLower}_shutdown"
-                default_entity_id = "${clientIdLower}_shutdown"
-                name = "Shutdown"
-                command_topic = "$BaseTopic/$ClientID/command"
-                icon = "mdi:power"
-                payload_press = '{"action":"shutdown"}'
-            }
-            
-            "${clientIdLower}_hibernate" = @{
-                platform = "button"
-                unique_id = "${clientIdLower}_hibernate"
-                default_entity_id = "${clientIdLower}_hibernate"
-                name = "Hibernate"
-                command_topic = "$BaseTopic/$ClientID/command"
-                icon = "mdi:sleep"
-                payload_press = '{"action":"hibernate"}'
-            }
-            
-            "${clientIdLower}_logout" = @{
-                platform = "button"
-                unique_id = "${clientIdLower}_logout"
-                default_entity_id = "${clientIdLower}_logout"
-                name = "Logout"
-                command_topic = "$BaseTopic/$ClientID/command"
-                icon = "mdi:logout"
-                payload_press = '{"action":"logout"}'
-            }
-            
-            "${clientIdLower}_refresh" = @{
-                platform = "button"
-                unique_id = "${clientIdLower}_refresh"
-                default_entity_id = "${clientIdLower}_refresh"
-                name = "Refresh Sensors"
-                command_topic = "$BaseTopic/$ClientID/command"
-                icon = "mdi:refresh"
-                payload_press = '{"action":"refresh"}'
-                entity_category = "diagnostic"
-            }
-            
-            "${clientIdLower}_status" = @{
-                platform = "button"
-                unique_id = "${clientIdLower}_status"
-                default_entity_id = "${clientIdLower}_status"
-                name = "Show Status"
-                command_topic = "$BaseTopic/$ClientID/command"
-                icon = "mdi:information-outline"
-                payload_press = '{"action":"status"}'
-                entity_category = "diagnostic"
             }
         }
     }
@@ -528,10 +458,10 @@ function Publish-HADiscovery {
         # Topic de découverte Home Assistant
         $discoveryTopic = "homeassistant/device/ha-agent/$($ClientID.ToLower())/config"
         
-        # Publier la configuration de découverte
-        Publish-MQTT $discoveryTopic $jsonConfig
+        # Publier la configuration de découverte avec retain pour persistance
+        Publish-MQTT $discoveryTopic $jsonConfig $true
         
-        Write-Host "✅ Configuration de découverte publiée sur $discoveryTopic" -ForegroundColor Green
+        Write-Host "✅ Configuration de découverte publiée avec RETAIN sur $discoveryTopic" -ForegroundColor Green
     }
     catch {
         Write-Host "❌ Erreur lors de la publication de découverte: $_" -ForegroundColor Red
@@ -566,7 +496,7 @@ function Initialize-MQTTConnection {
     }
 }
 
-function Publish-MQTT($topic, $payload) {
+function Publish-MQTT($topic, $payload, [bool]$retain = $false) {
     try {
         # S'assurer que la session est connectée
         $session = Initialize-MQTTConnection
@@ -574,11 +504,16 @@ function Publish-MQTT($topic, $payload) {
             throw "Pas de session MQTT disponible"
         }
         
-        # Publier le message
-        Send-MQTTMessage -Session $session -Topic $topic -Payload $payload.ToString() -Quiet
+        # Publier le message avec ou sans retain
+        if ($retain) {
+            Send-MQTTMessage -Session $session -Topic $topic -Payload $payload.ToString() -Retain -Quiet
+        } else {
+            Send-MQTTMessage -Session $session -Topic $topic -Payload $payload.ToString() -Quiet
+        }
         
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        Write-Host "[$timestamp] MQTT ✅ $topic : $payload" -ForegroundColor Green
+        $retainFlag = if ($retain) { " [RETAIN]" } else { "" }
+        Write-Host "[$timestamp] MQTT ✅$retainFlag $topic : $payload" -ForegroundColor Green
     }
     catch {
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -587,91 +522,26 @@ function Publish-MQTT($topic, $payload) {
     }
 }
 
-function Start-MQTTCommandListener {
-    param(
-        [string]$ClientID,
-        [string]$BaseTopic
-    )
-    
-    try {
-        $session = Initialize-MQTTConnection
-        if (-not $session) {
-            Write-Host "❌ Pas de session MQTT pour écouter les commandes" -ForegroundColor Red
-            return
-        }
-        
-        $commandTopic = "$BaseTopic/$ClientID/command"
-        
-        # S'abonner au topic de commandes (fonction non disponible dans PSMQTT de base)
-        # Cette partie nécessiterait une extension ou une approche différente
-        Write-Host "🔔 Écoute des commandes sur: $commandTopic" -ForegroundColor Yellow
-        Write-Host "Note: L'écoute MQTT nécessite une implémentation avancée" -ForegroundColor Gray
-    }
-    catch {
-        Write-Host "❌ Erreur lors de l'écoute MQTT: $_" -ForegroundColor Red
-    }
-}
 
-function Process-HACommand {
-    param(
-        [string]$JsonCommand
-    )
-    
-    try {
-        $command = $JsonCommand | ConvertFrom-Json
-        $action = $command.action
-        
-        Write-Host "🎯 Commande reçue: $action" -ForegroundColor Cyan
-        
-        switch ($action.ToLower()) {
-            "reboot" { 
-                Write-Host "⚡ Exécution: Redémarrage du système" -ForegroundColor Yellow
-                Invoke-RemoteCommand "reboot"
-            }
-            "shutdown" { 
-                Write-Host "⚡ Exécution: Arrêt du système" -ForegroundColor Yellow
-                Invoke-RemoteCommand "shutdown"
-            }
-            "hibernate" { 
-                Write-Host "⚡ Exécution: Mise en hibernation" -ForegroundColor Yellow
-                Invoke-RemoteCommand "hibernate"
-            }
-            "sleep" { 
-                Write-Host "⚡ Exécution: Mise en veille" -ForegroundColor Yellow
-                Invoke-RemoteCommand "sleep"
-            }
-            "logout" { 
-                Write-Host "⚡ Exécution: Déconnexion" -ForegroundColor Yellow
-                Invoke-RemoteCommand "logout"
-            }
-            "refresh" { 
-                Write-Host "🔄 Exécution: Rafraîchissement des capteurs" -ForegroundColor Green
-                Invoke-RefreshSensors
-            }
-            "status" { 
-                Write-Host "📊 Exécution: Affichage du statut" -ForegroundColor Green
-                Show-SystemStatus
-            }
-            default { 
-                Write-Host "⚠️ Commande non reconnue: $action" -ForegroundColor Yellow
-            }
-        }
-    }
-    catch {
-        Write-Host "❌ Erreur lors du traitement de la commande: $_" -ForegroundColor Red
-    }
-}
 
 # =============================================================================
 # FONCTION PRINCIPALE
 # =============================================================================
 
-function Start-HAAgent {
-    Write-Host "=== Démarrage de l'agent Home Assistant pour Windows ===" -ForegroundColor Green
+function Initialize-HAAgent {
+    Write-Host "=== Initialisation de l'agent Home Assistant pour Windows ===" -ForegroundColor Green
     Write-Host "Client ID: $ClientID" -ForegroundColor Yellow
     Write-Host "Broker MQTT: $MQTTBroker" -ForegroundColor Yellow
     Write-Host ""
     
+    # Publication de la découverte Home Assistant (au démarrage uniquement)
+    Publish-HADiscovery -ClientID $ClientID -BaseTopic $BaseTopic
+    
+    Write-Host "✅ Agent initialisé - publication des capteurs uniquement" -ForegroundColor Green
+    Write-Host ""
+}
+
+function Publish-HAData {
     # État du PC
     $pcRunning = Test-PCRunning
     $usersLoggedIn = Test-UsersLoggedIn
@@ -679,9 +549,6 @@ function Start-HAAgent {
     
     # Statistiques système
     $stats = Get-SystemStats
-    
-    # Publication de la découverte Home Assistant (une seule fois)
-    Publish-HADiscovery -ClientID $ClientID -BaseTopic $BaseTopic
     
     # Publication des données
     Write-Host "=== Publication des données ===" -ForegroundColor Cyan
@@ -717,8 +584,8 @@ function Start-HAAgent {
         Publish-MQTT "$BaseTopic/$ClientID/sensors" ($sensorsData | ConvertTo-Json -Compress)
     }
     
-    # Heartbeat
-    Publish-MQTT "$BaseTopic/$ClientID/status" "online"
+    # Heartbeat avec retain pour persistance
+    Publish-MQTT "$BaseTopic/$ClientID/status" "online" $true
     
     Write-Host ""
     Write-Host "=== Résumé ===" -ForegroundColor Green
@@ -733,11 +600,17 @@ function Start-HAAgent {
     }
 }
 
+function Start-HAAgent {
+    # Fonction de compatibilité - appelle les nouvelles fonctions
+    Initialize-HAAgent
+    Publish-HAData
+}
+
 # Fonction de nettoyage pour fermer la session MQTT
 function Stop-HAAgent {
     if ($Global:MQTTSession -and $Global:MQTTSession.IsConnected) {
         try {
-            Publish-MQTT "$BaseTopic/$ClientID/status" "offline"
+            Publish-MQTT "$BaseTopic/$ClientID/status" "offline" $true
             Disconnect-MQTTBroker -Session $Global:MQTTSession
             Write-Host "✅ Session MQTT fermée proprement" -ForegroundColor Green
         }
@@ -748,14 +621,8 @@ function Stop-HAAgent {
 }
 
 # =============================================================================
-# EXEMPLES D'UTILISATION
+# EXÉCUTION PRINCIPALE
 # =============================================================================
 
-# Exécution principale
+# Exécution principale - capteurs seulement
 Start-HAAgent
-
-# Exemples de commandes à distance (décommentez pour tester)
-# Invoke-RemoteCommand "reboot"
-# Invoke-RemoteCommand "shutdown"
-# Invoke-RemoteCommand "hibernate"
-# Invoke-RemoteCommand "logout"
