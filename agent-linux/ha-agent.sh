@@ -112,11 +112,21 @@ send_data() {
     echo "$json"
     echo "---"
     
-    if ! curl -s -X POST "$WEBHOOK_URL" \
+    # Envoyer avec curl et capturer le code de statut HTTP
+    local http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" \
         -H "Content-Type: application/json" \
-        -d "$json" > /dev/null 2>&1; then
-        echo "ERREUR: Impossible d'envoyer les données au webhook"
-        send_error "Impossible d'envoyer les données au webhook"
+        -d "$json")
+    
+    if [ "$http_code" = "200" ]; then
+        echo "OK. Donnees envoyees avec succes."
+    else
+        echo "ERREUR: Webhook a retourne HTTP $http_code"
+        # Essayer d'obtenir le détail de l'erreur
+        local error_detail=$(curl -s -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$json")
+        echo "Detail: $error_detail"
+        send_error "Erreur HTTP $http_code lors de l'envoi des donnees"
     fi
 }
 
