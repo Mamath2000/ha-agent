@@ -2,6 +2,7 @@ const express = require('express');
 const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
+const { platform } = require('os');
 
 // =============================================================================
 // CONFIGURATION (depuis config.json)
@@ -24,6 +25,7 @@ const BASE_TOPIC = 'ha-agent';
 // Cache pour suivre l'état et le dernier contact de chaque appareil
 const deviceStatus = {};
 const PING_TIMEOUT = 15000; // 15 secondes en millisecondes
+const DISCOVERY_INTERVAL = 6 * 60 * 60 * 1000; // 6 heures en millisecondes
 
 // =============================================================================
 // CONNEXION MQTT
@@ -66,6 +68,7 @@ setInterval(() => {
 function getDiscoveryConfig(deviceData) {
     const deviceId = deviceData.device_id;
     const hostname = deviceData.hostname;
+    const object_id = hostname.replace(/\s+/g, '_').toLowerCase();
 
     const stateTopic = `${BASE_TOPIC}/${deviceId}/state`;
     const sensorsTopic = `${BASE_TOPIC}/${deviceId}/sensors`;
@@ -82,26 +85,93 @@ function getDiscoveryConfig(deviceData) {
 
     // Définition de tous les capteurs
     const components = {
-        pc_running: { type: 'binary_sensor', name: 'Running', device_class: 'running', state_topic: availabilityTopic, payload_on: 'online', payload_off: 'offline' },
-        users_logged_in: { type: 'binary_sensor', name: 'Users Logged In', device_class: 'occupancy', state_topic: stateTopic, value_template: '{{ value_json.users_logged_in }}', payload_on: true, payload_off: false },
-        users_count: { type: 'sensor', name: 'Users Count', icon: 'mdi:account-group', state_topic: stateTopic, value_template: '{{ value_json.logged_users_count }}', state_class: 'measurement' },
-        users_list: { type: 'sensor', name: 'Logged Users', icon: 'mdi:account-details', state_topic: stateTopic, value_template: '{{ value_json.logged_users }}' },
-        cpu_percent: { type: 'sensor', name: 'CPU Usage', icon: 'mdi:cpu-64-bit', unit_of_measurement: '%', state_topic: sensorsTopic, value_template: '{{ value_json.cpu_percent }}', state_class: 'measurement' },
-        ram_percent: { type: 'sensor', name: 'Memory Usage', icon: 'mdi:memory', unit_of_measurement: '%', state_topic: sensorsTopic, value_template: '{{ value_json.ram_percent }}', state_class: 'measurement' },
-        disk_percent: { type: 'sensor', name: 'Disk Usage', icon: 'mdi:harddisk', unit_of_measurement: '%', state_topic: sensorsTopic, value_template: '{{ value_json.disk_percent }}', state_class: 'measurement' },
+        pc_running: { 
+          platform: 'binary_sensor', 
+          name: 'Running', 
+          unique_id: `ha_agent_${deviceId}_pc_running`,
+          object_id: `${object_id}_pc_running`,
+          device_class: 'running', 
+          state_topic: availabilityTopic, 
+          availability: [], 
+          payload_on: 'online', 
+          payload_off: 'offline' },
+
+        users_logged_in: { 
+          platform: 'binary_sensor', 
+          name: 'Users Logged In', 
+          unique_id: `ha_agent_${deviceId}_users_logged_in`,
+          object_id: `${object_id}_users_logged_in`,
+          device_class: 'occupancy', 
+          state_topic: stateTopic, 
+          value_template: '{{ value_json.users_logged_in }}', 
+          payload_on: true, 
+          payload_off: false },
+
+        users_count: { 
+          platform: 'sensor', 
+          name: 'Users Count', 
+          unique_id: `ha_agent_${deviceId}_users_count`,
+          object_id: `${object_id}_users_count`,
+          icon: 'mdi:account-group', 
+          state_topic: stateTopic, 
+          value_template: '{{ value_json.logged_users_count }}', 
+          state_class: 'measurement' },
+
+        users_list: { 
+          platform: 'sensor', 
+          name: 'Logged Users', 
+          unique_id: `ha_agent_${deviceId}_users_list`,
+          object_id: `${object_id}_users_list`,
+          icon: 'mdi:account-details', 
+          state_topic: stateTopic, 
+          value_template: '{{ value_json.logged_users }}' },
+
+        cpu_percent: { 
+          platform: 'sensor', 
+          name: 'CPU Usage', 
+          unique_id: `ha_agent_${deviceId}_cpu_percent`,
+          object_id: `${object_id}_cpu_percent`,
+          icon: 'mdi:cpu-64-bit', 
+          unit_of_measurement: '%', 
+          state_topic: sensorsTopic, 
+          value_template: '{{ value_json.cpu_percent }}', 
+          state_class: 'measurement' },
+
+        ram_percent: { 
+          platform: 'sensor', 
+          name: 'Memory Usage', 
+          unique_id: `ha_agent_${deviceId}_ram_percent`,
+          object_id: `${object_id}_ram_percent`,
+          icon: 'mdi:memory', 
+          unit_of_measurement: '%', 
+          state_topic: sensorsTopic, 
+          value_template: '{{ value_json.ram_percent }}', 
+          state_class: 'measurement' },
+
+        disk_percent: { 
+          platform: 'sensor', 
+          name: 'Disk Usage', 
+          unique_id: `ha_agent_${deviceId}_disk_percent`,
+          object_id: `${object_id}_disk_percent`,
+          icon: 'mdi:harddisk', 
+          unit_of_measurement: '%', 
+          state_topic: sensorsTopic, 
+          value_template: '{{ value_json.disk_percent }}', 
+          state_class: 'measurement' }
+
     };
 
     // On génère la configuration complète pour chaque composant
-    const fullConfig = {};
-    for (const [key, value] of Object.entries(components)) {
-        fullConfig[key] = {
-            ...value,
-            name: `${hostname} ${value.name}`,
-            unique_id: `${deviceId}_${key}`,
-            availability_topic: availabilityTopic,
-            device: device,
-        };
-    }
+    const fullConfig= {
+      device: device,
+      origin: {name: "HA-Agent Hook"},
+      availability: [
+        {topic: availabilityTopic, payload_on: 'online', payload_off: 'offline'}
+      ],
+      availability_mode: "all",
+      components: components
+    };
+
     return fullConfig;
 }
 
@@ -133,20 +203,14 @@ app.post('/ha-agent', (req, res) => {
   if (!publishedDevices.has(deviceId)) {
     console.log(`Nouveau périphérique détecté: ${deviceId}. Publication de la découverte...`);
     const discoveryConfigs = getDiscoveryConfig(data);
+    const discoveryTopic = `homeassistant/device/ha-agent/${deviceId}/config`;
 
-    for (const [key, config] of Object.entries(discoveryConfigs)) {
-      const componentType = config.type;
-      const discoveryTopic = `homeassistant/${componentType}/ha-agent/${deviceId}_${key}/config`;
-      
-      // On retire la clé "type" qui n'est pas utile dans le payload final
-      delete config.type;
 
-      client.publish(discoveryTopic, JSON.stringify(config), { retain: true }, (err) => {
-        if (err) {
-          console.error(`Erreur lors de la publication de la découverte pour ${key}:`, err);
-        }
-      });
-    }
+    client.publish(discoveryTopic, JSON.stringify(discoveryConfigs), { retain: true }, (err) => {
+      if (err) {
+        console.error(`Erreur lors de la publication de la découverte pour ${deviceId}:`, err);
+      }
+    });
     publishedDevices.add(deviceId);
     console.log(`Découverte publiée pour ${deviceId}.`);
   }
