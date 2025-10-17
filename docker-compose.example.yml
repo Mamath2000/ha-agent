@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  ha-agent-hook:
+    image: mathmath350/ha-agent-hook:latest
+    container_name: ha-agent-hook
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Montez votre fichier de configuration
+      - ./config.json:/usr/src/app/config.json:ro
+    environment:
+      - NODE_ENV=production
+      - TZ=Europe/Paris
+    networks:
+      - ha-network
+    # Optionnel: healthcheck pour vérifier que le service fonctionne
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  ha-network:
+    driver: bridge
+
+# =============================================================================
+# INSTRUCTIONS D'UTILISATION
+# =============================================================================
+#
+# 1. Copiez ce fichier vers votre serveur :
+#    scp docker-compose.example.yml user@server:/path/to/ha-agent/docker-compose.yml
+#
+# 2. Créez un fichier config.json avec vos paramètres MQTT :
+#    {
+#      "port": 3000,
+#      "mqtt_broker_url": "mqtt://192.168.1.100",
+#      "mqtt_username": "votre_user",
+#      "mqtt_password": "votre_password"
+#    }
+#
+# 3. Lancez le service :
+#    docker compose up -d
+#
+# 4. Vérifiez les logs :
+#    docker compose logs -f
+#
+# 5. Le webhook sera accessible sur http://votre-serveur:3000/ha-agent
+#
+# =============================================================================
+# CONFIGURATION AVANCÉE
+# =============================================================================
+#
+# Pour utiliser un réseau existant (ex: si vous avez déjà MQTT sur Docker) :
+#   networks:
+#     ha-network:
+#       external: true
+#       name: mon_reseau_existant
+#
+# Pour changer le port exposé :
+#   ports:
+#     - "8080:3000"  # Accessible sur http://serveur:8080
+#
+# Pour ajouter des labels Traefik (reverse proxy) :
+#   labels:
+#     - "traefik.enable=true"
+#     - "traefik.http.routers.ha-agent.rule=Host(`ha-agent.mondomaine.com`)"
+#     - "traefik.http.services.ha-agent.loadbalancer.server.port=3000"
+#
