@@ -1,10 +1,17 @@
 # =============================================================================
 # Script Home Assistant Agent pour Windows
-# Fonctionnalités : État PC, utilisateurs connectés, contrôle à distance, capteurs système
+# Fonctionnalités : État PC, utilisateurs connectés, capteurs système
 # =============================================================================
 
 # Import du module PSMQTT
 Import-Module PSMQTT
+
+# =============================================================================
+# CONFIGURATION - Modifiez ces valeurs selon votre installation
+# =============================================================================
+$MQTTBroker = "mqtt://192.168.100.9"  # Adresse de votre broker MQTT
+$BaseTopic = "ha-agent"                # Topic de base pour MQTT
+$IntervalSeconds = 60                  # Intervalle entre les envois (secondes)
 
 # =============================================================================
 # FONCTIONS UTILITAIRES
@@ -625,4 +632,27 @@ function Stop-HAAgent {
 # =============================================================================
 
 # Exécution principale - capteurs seulement
-Start-HAAgent
+try {
+    Write-Host "🚀 Démarrage HA-Agent" -ForegroundColor Green
+    Write-Host "📊 Intervalle: $IntervalSeconds secondes" -ForegroundColor Cyan
+    Write-Host "🌐 MQTT: $MQTTBroker" -ForegroundColor Cyan
+    Write-Host "📡 Topic: $BaseTopic" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Appuyez sur Ctrl+C pour arrêter" -ForegroundColor Yellow
+    Write-Host ""
+    
+    # Initialiser une seule fois
+    Initialize-HAAgent
+    
+    # Boucle principale
+    while ($true) {
+        Publish-HAData
+        Start-Sleep -Seconds $IntervalSeconds
+    }
+}
+catch {
+    Write-Host "❌ Erreur: $_" -ForegroundColor Red
+}
+finally {
+    Stop-HAAgent
+}

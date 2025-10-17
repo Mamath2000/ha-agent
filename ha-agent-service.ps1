@@ -1,15 +1,21 @@
 # =============================================================================
-# Script Home Assistant Agent - Mode Service
-# Exécution en boucle continue avec intervalle configurable
+# Script HA-Agent pour exécution en service Windows
+# Version service qui republique les discovery périodiquement
 # =============================================================================
 
-param(
-    [int]$IntervalSeconds = 60,  # Intervalle entre les publications (par défaut 60 secondes)
-    [switch]$RunOnce = $false    # Exécuter une seule fois au lieu d'une boucle
-)
+# Import du module PSMQTT
+Import-Module PSMQTT
+
+# =============================================================================
+# CONFIGURATION - Modifiez ces valeurs selon votre installation
+# =============================================================================
+$MQTTBroker = "mqtt://192.168.100.9"  # Adresse de votre broker MQTT
+$BaseTopic = "ha-agent"                # Topic de base pour MQTT
+$IntervalSeconds = 60                  # Intervalle entre les envois (secondes)
 
 # Importer le script principal
-. ".\ha-agent.ps1"
+$scriptPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "ha-agent.ps1"
+. $scriptPath
 
 function Start-HAAgentService {
     param(
