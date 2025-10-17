@@ -1,1 +1,5 @@
 HA-Agent-Portable.zip
+
+# Logs
+logs/
+*.log
