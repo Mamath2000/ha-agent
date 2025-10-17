@@ -124,26 +124,26 @@ function Get-SystemData {
 # =============================================================================
 
 try {
-    Write-Host "🚀 Démarrage HA-Agent (mode Webhook)"
-    Write-Host "🎯 URL du Hook: $WebhookURL"
-    Write-Host "📊 Intervalle: $IntervalSeconds secondes"
-    Write-Host "Appuyez sur Ctrl+C pour arrêter."
+    Write-Host ">> Demarrage HA-Agent (mode Webhook)"
+    Write-Host "URL du Hook: $WebhookURL"
+    Write-Host "Intervalle: $IntervalSeconds secondes"
+    Write-Host "Appuyez sur Ctrl+C pour arreter."
     
     while ($true) {
         $payload = Get-SystemData
         $jsonPayload = $payload | ConvertTo-Json -Depth 5 -Compress
         
         try {
-            Write-Host "-> Envoi des données pour $($payload.hostname)..."
+            Write-Host "-> Envoi des donnees pour $($payload.hostname)..."
             Invoke-RestMethod -Uri $WebhookURL -Method Post -Body $jsonPayload -ContentType 'application/json'
-            Write-Host "✅ Données envoyées avec succès."
+            Write-Host "OK. Donnees envoyees avec succes."
         } catch {
-            Write-Host "❌ Erreur lors de l'envoi au webhook: $_" -ForegroundColor Red
+            Write-Host "ERREUR lors de l'envoi au webhook: $_" -ForegroundColor Red
         }
         
         Start-Sleep -Seconds $IntervalSeconds
     }
 }
 catch {
-    Write-Host "❌ Erreur critique: $_" -ForegroundColor Red
+    Write-Host "ERREUR critique: $_" -ForegroundColor Red
 }
