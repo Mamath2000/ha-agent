@@ -45,9 +45,6 @@ client.on('error', (err) => {
   console.error('Erreur de connexion MQTT:', err);
 });
 
-// Cache en mémoire pour savoir quels appareils ont déjà été découverts
-const publishedDevices = new Set();
-
 // Fonction pour vérifier les appareils inactifs
 setInterval(() => {
     const now = Date.now();
@@ -190,18 +187,26 @@ app.post('/ha-agent', (req, res) => {
   }
 
   const deviceId = data.device_id;
+  const now = Date.now();
 
   // Mettre à jour le statut et le timestamp de l'appareil
   if (!deviceStatus[deviceId]) {
-    deviceStatus[deviceId] = {};
+    deviceStatus[deviceId] = {
+      lastSeen: now,
+      status: 'online',
+      lastDiscovery: 0 // 0 pour forcer la publication au premier contact
+    };
+  } else {
+    deviceStatus[deviceId].lastSeen = now;
+    deviceStatus[deviceId].status = 'online';
   }
-  deviceStatus[deviceId].lastSeen = Date.now();
-  deviceStatus[deviceId].status = 'online';
 
 
-  // --- 1. Publication de la découverte (si c'est la première fois) ---
-  if (!publishedDevices.has(deviceId)) {
-    console.log(`Nouveau périphérique détecté: ${deviceId}. Publication de la découverte...`);
+  // --- 1. Publication de la découverte (première fois ou toutes les 6 heures) ---
+  const shouldPublishDiscovery = (now - deviceStatus[deviceId].lastDiscovery) > DISCOVERY_INTERVAL;
+  
+  if (shouldPublishDiscovery) {
+    console.log(`Publication de la découverte pour ${deviceId}...`);
     const discoveryConfigs = getDiscoveryConfig(data);
     const discoveryTopic = `homeassistant/device/ha-agent/${deviceId}/config`;
 
@@ -211,7 +216,8 @@ app.post('/ha-agent', (req, res) => {
         console.error(`Erreur lors de la publication de la découverte pour ${deviceId}:`, err);
       }
     });
-    publishedDevices.add(deviceId);
+    
+    deviceStatus[deviceId].lastDiscovery = now;
     console.log(`Découverte publiée pour ${deviceId}.`);
   }
 
