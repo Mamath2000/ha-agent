@@ -18,7 +18,7 @@
 # CONFIGURATION
 # =============================================================================
 # L'URL de votre hook Node.js. À modifier lorsque le hook sera prêt.
-$WebhookURL = "http://VOTRE_SERVEUR_DOCKER:3000/ha-agent"
+$WebhookURL = "http://192.168.100.190:3000/ha-agent"
 $IntervalSeconds = 60                  # Intervalle entre les envois (secondes)
 
 # =============================================================================
