@@ -1,0 +1,19 @@
+services:
+  ha-agent-hook:
+    # Construit l'image Docker à partir du Dockerfile dans le dossier courant
+    build: .
+    
+    # Nom du conteneur qui sera créé
+    container_name: ha-agent-hook
+    
+    # Politique de redémarrage : le conteneur redémarrera automatiquement
+    # sauf s'il est arrêté manuellement (ex: via 'docker stop').
+    restart: unless-stopped
+    
+    # Mappage des ports : expose le port 3000 du conteneur
+    # sur le port 3000 de la machine hôte.
+    ports:
+      - "3000:3000"
+      
+    # Le fichier config.json est déjà inclus dans l'image grâce au Dockerfile,
+    # il n'est donc pas nécessaire de le monter en tant que volume.

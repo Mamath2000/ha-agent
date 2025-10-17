@@ -1,0 +1,6 @@
+{
+  "port": 3000,
+  "mqtt_broker_url": "mqtt://192.168.100.9",
+  "mqtt_username": "",
+  "mqtt_password": ""
+}
