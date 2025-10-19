@@ -181,24 +181,31 @@ const app = express();
 app.use('/ha-agent', express.text({ type: 'application/json', limit: '10mb' }));
 
 app.post('/ha-agent', (req, res) => {
+  const rawBody = req.body;
+  
+  // LOG DE DEBUG : toujours afficher le flux brut reçu
+  console.log('📥 FLUX REÇU:');
+  console.log('Raw body:', rawBody);
+  console.log('Body length:', rawBody ? rawBody.length : 0);
+  console.log('Body type:', typeof rawBody);
+  console.log('---');
+  
   try {
-    const rawBody = req.body;
     let data;
     
     // Parser manuellement le JSON
     try {
       data = JSON.parse(rawBody);
+      console.log('✅ JSON parsé avec succès');
     } catch (parseError) {
-      console.error('❌ ERREUR JSON - Input reçu:');
-      console.error('Raw body:', rawBody);
-      console.error('Erreur de parsing:', parseError.message);
+      console.error('❌ ERREUR JSON - Parsing échoué:');
+      console.error('Parse error:', parseError.message);
       console.error('---');
       return res.status(400).send('JSON invalide');
     }
 
     if (!data || !data.device_id) {
-      console.warn('⚠️ DONNÉES INVALIDES - Input reçu:');
-      console.warn('Raw body:', rawBody);
+      console.warn('⚠️ DONNÉES INVALIDES:');
       console.warn('Parsed body:', JSON.stringify(data, null, 2));
       console.warn('---');
       return res.status(400).send('Données invalides, device_id manquant.');
@@ -276,8 +283,7 @@ app.post('/ha-agent', (req, res) => {
   res.status(200).send('Données reçues');
   
   } catch (error) {
-    console.error('❌ ERREUR SERVEUR - Input reçu:');
-    console.error('Raw body:', req.body || 'Non disponible');
+    console.error('❌ ERREUR SERVEUR:');
     console.error('Erreur:', error.message);
     console.error('Stack:', error.stack);
     console.error('---');
