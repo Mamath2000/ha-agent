@@ -1,6 +1,6 @@
 {
   "name": "ha-agent-hook",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A webhook bridge to convert HA-Agent data to MQTT discovery messages.",
   "main": "index.js",
   "scripts": {
