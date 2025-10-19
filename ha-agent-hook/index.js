@@ -177,29 +177,28 @@ function getDiscoveryConfig(deviceData) {
 // =============================================================================
 const app = express();
 
-// Middleware pour capturer le body raw avant express.json()
-app.use('/ha-agent', express.text({ type: '*/*' }), (req, res, next) => {
-  req.rawBody = req.body;
-  // Essayer de parser en JSON
-  try {
-    req.body = JSON.parse(req.body);
-    next();
-  } catch (err) {
-    console.error('❌ ERREUR JSON - Input reçu:');
-    console.error('Raw body:', req.rawBody);
-    console.error('Erreur:', err.message);
-    console.error('---');
-    return res.status(400).send('JSON invalide');
-  }
-});
+// Utiliser express.text() pour capturer le body complet
+app.use('/ha-agent', express.text({ type: 'application/json', limit: '10mb' }));
 
 app.post('/ha-agent', (req, res) => {
   try {
-    const data = req.body;
+    const rawBody = req.body;
+    let data;
+    
+    // Parser manuellement le JSON
+    try {
+      data = JSON.parse(rawBody);
+    } catch (parseError) {
+      console.error('❌ ERREUR JSON - Input reçu:');
+      console.error('Raw body:', rawBody);
+      console.error('Erreur de parsing:', parseError.message);
+      console.error('---');
+      return res.status(400).send('JSON invalide');
+    }
 
     if (!data || !data.device_id) {
       console.warn('⚠️ DONNÉES INVALIDES - Input reçu:');
-      console.warn('Raw body:', req.rawBody || 'Non disponible');
+      console.warn('Raw body:', rawBody);
       console.warn('Parsed body:', JSON.stringify(data, null, 2));
       console.warn('---');
       return res.status(400).send('Données invalides, device_id manquant.');
@@ -278,8 +277,7 @@ app.post('/ha-agent', (req, res) => {
   
   } catch (error) {
     console.error('❌ ERREUR SERVEUR - Input reçu:');
-    console.error('Raw body:', req.rawBody || 'Non disponible');
-    console.error('Parsed body:', JSON.stringify(req.body, null, 2));
+    console.error('Raw body:', req.body || 'Non disponible');
     console.error('Erreur:', error.message);
     console.error('Stack:', error.stack);
     console.error('---');
