@@ -177,33 +177,21 @@ function getDiscoveryConfig(deviceData) {
 // =============================================================================
 const app = express();
 
-// Middleware pour capturer le body raw en cas d'erreur JSON
-app.use('/ha-agent', (req, res, next) => {
-  // Capturer le raw body pour debug en cas d'erreur
-  let rawBody = '';
-  req.on('data', (chunk) => {
-    rawBody += chunk.toString();
-  });
-  req.on('end', () => {
-    req.rawBody = rawBody;
+// Middleware pour capturer le body raw avant express.json()
+app.use('/ha-agent', express.text({ type: '*/*' }), (req, res, next) => {
+  req.rawBody = req.body;
+  // Essayer de parser en JSON
+  try {
+    req.body = JSON.parse(req.body);
     next();
-  });
-});
-
-app.use(express.json({
-  // Gestionnaire d'erreur personnalisé pour les erreurs JSON
-  verify: (req, res, buf, encoding) => {
-    try {
-      JSON.parse(buf);
-    } catch (err) {
-      console.error('❌ ERREUR JSON - Input reçu:');
-      console.error('Raw body:', buf.toString());
-      console.error('Erreur:', err.message);
-      console.error('---');
-      throw err;
-    }
+  } catch (err) {
+    console.error('❌ ERREUR JSON - Input reçu:');
+    console.error('Raw body:', req.rawBody);
+    console.error('Erreur:', err.message);
+    console.error('---');
+    return res.status(400).send('JSON invalide');
   }
-}));
+});
 
 app.post('/ha-agent', (req, res) => {
   try {
