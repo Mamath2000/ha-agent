@@ -82,24 +82,37 @@ function Get-SystemData {
     # --- Capteurs système ---
     $stats = @{}
     try {
+        # CPU - protection contre les valeurs nulles
         $cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+        if ($cpu -eq $null -or $cpu -lt 0 -or $cpu -gt 100) { $cpu = 0 }
         
+        # RAM - protection complète contre division par zéro
         $os = Get-CimInstance Win32_OperatingSystem
-        $ramTotal = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
-        $ramFree = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
-        $ramUsed = $ramTotal - $ramFree
+        $ramTotal = if ($os.TotalVisibleMemorySize) { [math]::Round($os.TotalVisibleMemorySize / 1MB, 2) } else { 0 }
+        $ramFree = if ($os.FreePhysicalMemory) { [math]::Round($os.FreePhysicalMemory / 1MB, 2) } else { 0 }
+        $ramUsed = if ($ramTotal -gt 0 -and $ramFree -ge 0) { $ramTotal - $ramFree } else { 0 }
         
+        # Disque - protection complète contre division par zéro
         $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-        $diskTotal = [math]::Round($disk.Size / 1GB, 2)
-        $diskFree = [math]::Round($disk.FreeSpace / 1GB, 2)
+        $diskTotal = if ($disk -and $disk.Size) { [math]::Round($disk.Size / 1GB, 2) } else { 0 }
+        $diskFree = if ($disk -and $disk.FreeSpace) { [math]::Round($disk.FreeSpace / 1GB, 2) } else { 0 }
         
         $stats = @{
             cpu_percent = [math]::Round($cpu, 1)
             ram_percent = if ($ramTotal -gt 0) { [math]::Round(($ramUsed / $ramTotal) * 100, 1) } else { 0 }
-            ram_used_gb = [math]::Round($ramUsed / 1024, 2)
-            disk_percent = if ($diskTotal -gt 0) { [math]::Round((($diskTotal - $diskFree) / $diskTotal) * 100, 1) } else { 0 }
+            ram_used_gb = if ($ramUsed -gt 0) { [math]::Round($ramUsed / 1024, 2) } else { 0 }
+            disk_percent = if ($diskTotal -gt 0 -and $diskFree -ge 0) { [math]::Round((($diskTotal - $diskFree) / $diskTotal) * 100, 1) } else { 0 }
         }
-    } catch {}
+    } catch {
+        Write-Host "ERREUR lors de la collecte des statistiques système: $_" -ForegroundColor Red
+        # Valeurs par défaut en cas d'erreur
+        $stats = @{
+            cpu_percent = 0
+            ram_percent = 0
+            ram_used_gb = 0
+            disk_percent = 0
+        }
+    }
 
     # --- Assemblage final ---
     $payload = @{
@@ -158,11 +171,17 @@ try {
             Write-Host "ERREUR lors de l'envoi au webhook: $_" -ForegroundColor Red
             # En cas d'erreur, on envoie un payload d'erreur au webhook
             try {
+                # Nettoyer le message d'erreur pour éviter les problèmes d'encodage
+                $errorMessage = $_.Exception.Message -replace '[^\x20-\x7E]', '?' # Remplacer les caractères non-ASCII par ?
+                if ([string]::IsNullOrEmpty($errorMessage)) {
+                    $errorMessage = "Erreur inconnue lors de la collecte des donnees"
+                }
+                
                 $errorPayload = @{
                     device_id = $deviceID
                     hostname = $hostname
                     status = "error"
-                    error = $_.Exception.Message
+                    error = $errorMessage
                 } | ConvertTo-Json -Depth 5 -Compress
                 Invoke-RestMethod -Uri $WebhookURL -Method Post -Body $errorPayload -ContentType 'application/json'
                 Write-Host "-> Notification d'erreur envoyee au webhook."

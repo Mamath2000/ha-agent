@@ -176,15 +176,46 @@ function getDiscoveryConfig(deviceData) {
 // SERVEUR WEB (Express)
 // =============================================================================
 const app = express();
-app.use(express.json());
+
+// Middleware pour capturer le body raw en cas d'erreur JSON
+app.use('/ha-agent', (req, res, next) => {
+  // Capturer le raw body pour debug en cas d'erreur
+  let rawBody = '';
+  req.on('data', (chunk) => {
+    rawBody += chunk.toString();
+  });
+  req.on('end', () => {
+    req.rawBody = rawBody;
+    next();
+  });
+});
+
+app.use(express.json({
+  // Gestionnaire d'erreur personnalisé pour les erreurs JSON
+  verify: (req, res, buf, encoding) => {
+    try {
+      JSON.parse(buf);
+    } catch (err) {
+      console.error('❌ ERREUR JSON - Input reçu:');
+      console.error('Raw body:', buf.toString());
+      console.error('Erreur:', err.message);
+      console.error('---');
+      throw err;
+    }
+  }
+}));
 
 app.post('/ha-agent', (req, res) => {
-  const data = req.body;
+  try {
+    const data = req.body;
 
-  if (!data || !data.device_id) {
-    console.warn('Données invalides reçues:', data);
-    return res.status(400).send('Données invalides, device_id manquant.');
-  }
+    if (!data || !data.device_id) {
+      console.warn('⚠️ DONNÉES INVALIDES - Input reçu:');
+      console.warn('Raw body:', req.rawBody || 'Non disponible');
+      console.warn('Parsed body:', JSON.stringify(data, null, 2));
+      console.warn('---');
+      return res.status(400).send('Données invalides, device_id manquant.');
+    }
 
   const deviceId = data.device_id;
   const now = Date.now();
@@ -256,6 +287,16 @@ app.post('/ha-agent', (req, res) => {
   }
   
   res.status(200).send('Données reçues');
+  
+  } catch (error) {
+    console.error('❌ ERREUR SERVEUR - Input reçu:');
+    console.error('Raw body:', req.rawBody || 'Non disponible');
+    console.error('Parsed body:', JSON.stringify(req.body, null, 2));
+    console.error('Erreur:', error.message);
+    console.error('Stack:', error.stack);
+    console.error('---');
+    res.status(500).send('Erreur interne du serveur');
+  }
 });
 
 app.get('/', (req, res) => {
