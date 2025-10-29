@@ -22,6 +22,9 @@ if (Test-Path $configPath) {
     exit 1
 }
 
+# Construction dynamique de l'URL du webhook
+$WebhookURL = "http://$WebhookHost`:$WebhookPort/ha-agent"
+
 # =============================================================================
 # FONCTIONS UTILITAIRES
 # =============================================================================
@@ -99,7 +102,9 @@ function Get-SystemData {
         $sessionLockState = "Unknown"
         $isLocked = $false
     }
-    Write-Host "[DEBUG] session_locked détecté (LogonUI): $sessionLockState ($isLocked)"
+    if ($DebugMode) {
+        Write-Host "[DEBUG] session_locked détecté (LogonUI): $sessionLockState ($isLocked)"
+    }
 
     # --- Capteurs système ---
     $stats = @{}
@@ -126,7 +131,9 @@ function Get-SystemData {
             disk_percent = if ($diskTotal -gt 0 -and $diskFree -ge 0) { [math]::Round((($diskTotal - $diskFree) / $diskTotal) * 100, 1) } else { 0 }
         }
     } catch {
-        Write-Host "ERREUR lors de la collecte des statistiques système: $_" -ForegroundColor Red
+        if ($DebugMode) {
+            Write-Host "ERREUR lors de la collecte des statistiques système: $_" -ForegroundColor Red
+        }
         # Valeurs par défaut en cas d'erreur
         $stats = @{
             cpu_percent = 0
@@ -174,12 +181,12 @@ try {
         try {
             # Toutes les 60 secondes (ou au premier passage), envoyer les données complètes
             if ($loopCounter % $loopsPerDataSend -eq 0) {
-                Write-Host "-> Collecte et envoi des donnees completes pour $hostname..."
+                if ($DebugMode) { Write-Host "-> Collecte et envoi des donnees completes pour $hostname..." }
                 $payload = Get-SystemData
             } 
             # Sinon, envoyer juste un ping
             else {
-                Write-Host "-> Envoi du ping pour $hostname..."
+                if ($DebugMode) { Write-Host "-> Envoi du ping pour $hostname..." }
                 $payload = @{
                     device_id = $deviceID
                     hostname = $hostname
@@ -189,10 +196,10 @@ try {
 
             $jsonPayload = $payload | ConvertTo-Json -Depth 5 -Compress
             Invoke-RestMethod -Uri $WebhookURL -Method Post -Body $jsonPayload -ContentType 'application/json'
-            Write-Host "OK. Donnees envoyees avec succes."
+            if ($DebugMode) { Write-Host "OK. Donnees envoyees avec succes." }
 
         } catch {
-            Write-Host "ERREUR lors de l'envoi au webhook: $_" -ForegroundColor Red
+            if ($DebugMode) { Write-Host "ERREUR lors de l'envoi au webhook: $_" -ForegroundColor Red }
             # En cas d'erreur, on envoie un payload d'erreur au webhook
             try {
                 # Nettoyer le message d'erreur pour éviter les problèmes d'encodage
@@ -208,9 +215,9 @@ try {
                     error = $errorMessage
                 } | ConvertTo-Json -Depth 5 -Compress
                 Invoke-RestMethod -Uri $WebhookURL -Method Post -Body $errorPayload -ContentType 'application/json'
-                Write-Host "-> Notification d'erreur envoyee au webhook."
+                if ($DebugMode) { Write-Host "-> Notification d'erreur envoyee au webhook." }
             } catch {
-                Write-Host "ERREUR critique: Impossible de contacter le webhook pour signaler l'erreur." -ForegroundColor DarkRed
+                if ($DebugMode) { Write-Host "ERREUR critique: Impossible de contacter le webhook pour signaler l'erreur." -ForegroundColor DarkRed }
             }
         }
         
@@ -219,5 +226,5 @@ try {
     }
 }
 catch {
-    Write-Host "ERREUR critique non geree: $_" -ForegroundColor Red
+    if ($DebugMode) { Write-Host "ERREUR critique non geree: $_" -ForegroundColor Red }
 }
