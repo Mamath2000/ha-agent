@@ -79,6 +79,43 @@ function Get-SystemData {
         }
     } catch {}
 
+    # --- Détection de session verrouillée/déverrouillée (méthode WTS) ---
+    $isLocked = $null
+    try {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class SessionLockCheck {
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    public static extern bool WTSQuerySessionInformation(IntPtr hServer, int sessionId, int infoClass, out IntPtr buffer, out int bytesReturned);
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    public static extern void WTSFreeMemory(IntPtr memory);
+    public static string GetSessionState() {
+        IntPtr buffer;
+        int bytesReturned;
+        // 0x7 = WTSConnectState
+        if (WTSQuerySessionInformation(IntPtr.Zero, -1, 7, out buffer, out bytesReturned)) {
+            int state = Marshal.ReadInt32(buffer);
+            WTSFreeMemory(buffer);
+            return state.ToString();
+        }
+        return null;
+    }
+}
+"@
+        $state = [SessionLockCheck]::GetSessionState()
+        # 0 = Active, 1 = Connected, 2 = ConnectQuery, 3 = Shadow, 4 = Disconnected, 5 = Idle, 6 = Listen, 7 = Reset, 8 = Down, 9 = Init, 0x1000 = Locked
+        if ($state -eq "0") {
+            $isLocked = $false
+        } elseif ($state -eq "0x1000" -or $state -eq "8") {
+            $isLocked = $true
+        } else {
+            $isLocked = $null
+        }
+    } catch {
+        $isLocked = $null
+    }
+
     # --- Capteurs système ---
     $stats = @{}
     try {
@@ -123,6 +160,7 @@ function Get-SystemData {
         users_logged_in = $users.Count -gt 0
         logged_users_count = $users.Count
         logged_users = ($users -join ",")
+        session_locked = $isLocked
         sensors = $stats
     }
 

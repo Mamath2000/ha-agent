@@ -51,7 +51,7 @@ get_system_data() {
     local hostname=$(hostname)
     local mac=$(get_primary_mac_address)
     local device_id=$(get_device_id)
-    
+
     # --- Utilisateurs connectés ---
     local users_list=$(who | awk '{print $1}' | sort -u | tr '\n' ',' | sed 's/,$//')
     local users_count=$(who | awk '{print $1}' | sort -u | wc -l)
@@ -59,7 +59,29 @@ get_system_data() {
     if [ "$users_count" -gt 0 ]; then
         users_logged_in="true"
     fi
-    
+
+    # --- Détection de session verrouillée/déverrouillée ---
+    local session_locked="null"
+    # Méthode 1 : vérifier la présence d'un screensaver actif (gnome, cinnamon, etc.)
+    if command -v gnome-screensaver-command >/dev/null 2>&1; then
+        if gnome-screensaver-command -q 2>/dev/null | grep -q 'is active'; then
+            session_locked="true"
+        else
+            session_locked="false"
+        fi
+    elif command -v loginctl >/dev/null 2>&1; then
+        # Méthode 2 : loginctl (systemd)
+        local session_id=$(loginctl | awk '/tty/ {print $1; exit}')
+        if [ -n "$session_id" ]; then
+            local lock_state=$(loginctl show-session $session_id -p Locked | cut -d'=' -f2)
+            if [ "$lock_state" = "yes" ]; then
+                session_locked="true"
+            elif [ "$lock_state" = "no" ]; then
+                session_locked="false"
+            fi
+        fi
+    fi
+
     # --- CPU Usage ---
     # Méthode plus fiable : utiliser mpstat ou calculer depuis /proc/stat
     local cpu_idle=$(top -bn2 -d 0.5 | grep "Cpu(s)" | tail -1 | awk '{print $8}' | cut -d'%' -f1)
@@ -68,20 +90,20 @@ get_system_data() {
         cpu_idle=$(grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END {print 100-usage}')
     fi
     local cpu_percent=$(LC_NUMERIC=C awk "BEGIN {printf \"%.1f\", 100 - $cpu_idle}")
-    
+
     # --- RAM Usage ---
     local ram_total=$(free -m | awk '/^Mem:/ {print $2}')
     local ram_used=$(free -m | awk '/^Mem:/ {print $3}')
     local ram_percent=$(LC_NUMERIC=C awk "BEGIN {if ($ram_total > 0) printf \"%.1f\", ($ram_used/$ram_total)*100; else print \"0.0\"}")
     local ram_used_gb=$(LC_NUMERIC=C awk "BEGIN {printf \"%.2f\", $ram_used/1024}")
-    
+
     # --- Disk Usage (partition racine) ---
     local disk_percent=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
     [ -z "$disk_percent" ] && disk_percent="0"
-    
+
     # --- Construction du JSON (compact, sur une seule ligne) ---
-    printf '{"device_id":"%s","hostname":"%s","mac_address":"%s","pc_running":true,"users_logged_in":%s,"logged_users_count":%s,"logged_users":"%s","sensors":{"cpu_percent":%s,"ram_percent":%s,"ram_used_gb":%s,"disk_percent":%s}}' \
-        "$device_id" "$hostname" "$mac" "$users_logged_in" "$users_count" "$users_list" "$cpu_percent" "$ram_percent" "$ram_used_gb" "$disk_percent"
+    printf '{"device_id":"%s","hostname":"%s","mac_address":"%s","pc_running":true,"users_logged_in":%s,"logged_users_count":%s,"logged_users":"%s","session_locked":%s,"sensors":{"cpu_percent":%s,"ram_percent":%s,"ram_used_gb":%s,"disk_percent":%s}}' \
+        "$device_id" "$hostname" "$mac" "$users_logged_in" "$users_count" "$users_list" "$session_locked" "$cpu_percent" "$ram_percent" "$ram_used_gb" "$disk_percent"
 }
 
 # Envoyer un ping
