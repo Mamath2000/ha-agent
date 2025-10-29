@@ -153,8 +153,8 @@ function getDiscoveryConfig(deviceData) {
       device_class: 'lock',
       state_topic: stateTopic,
       value_template: '{{ value_json.session_locked }}',
-      payload_on: true,
-      payload_off: false
+      payload_on: false,
+      payload_off: true
     }
   };
 
