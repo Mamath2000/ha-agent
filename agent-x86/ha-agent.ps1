@@ -10,13 +10,17 @@
 # Aucune dépendance externe requise.
 # =============================================================================
 
+
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (chargée depuis config.ps1)
 # =============================================================================
-# L'URL de votre hook Node.js.
-$WebhookURL = "http://192.168.100.190:3000/ha-agent"
-$DataIntervalSeconds = 60  # Intervalle pour l'envoi des données complètes
-$PingIntervalSeconds = 10  # Intervalle pour le ping de présence
+$configPath = Join-Path $PSScriptRoot "config.ps1"
+if (Test-Path $configPath) {
+    . $configPath
+} else {
+    Write-Host "[ERREUR] Fichier de configuration config.ps1 introuvable dans $PSScriptRoot" -ForegroundColor Red
+    exit 1
+}
 
 # =============================================================================
 # FONCTIONS UTILITAIRES
