@@ -162,7 +162,7 @@ function getDiscoveryConfig(deviceData) {
             object_id: `${object_id}_interactive`,
             // device_class: 'lock',
             state_topic: stateTopic,
-            value_template: '{{ not value_json.session_locked and value_json.users_logged_in }}',
+            value_template: '{{ value_json.session_locked and value_json.users_logged_in }}',
             payload_on: false,
             payload_off: true
         }
