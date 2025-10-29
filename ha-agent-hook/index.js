@@ -81,7 +81,7 @@ function getDiscoveryConfig(deviceData) {
     };
 
     // Définition de tous les capteurs
-    const components = {
+  const components = {
         pc_running: { 
           platform: 'binary_sensor', 
           name: 'Running', 
@@ -93,7 +93,7 @@ function getDiscoveryConfig(deviceData) {
           payload_on: 'online', 
           payload_off: 'offline' },
 
-        users_logged_in: { 
+  users_logged_in: { 
           platform: 'binary_sensor', 
           name: 'Users Logged In', 
           unique_id: `ha_agent_${deviceId}_users_logged_in`,
@@ -104,7 +104,7 @@ function getDiscoveryConfig(deviceData) {
           payload_on: true, 
           payload_off: false },
 
-        users_count: { 
+  users_count: { 
           platform: 'sensor', 
           name: 'Users Count', 
           unique_id: `ha_agent_${deviceId}_users_count`,
@@ -114,7 +114,7 @@ function getDiscoveryConfig(deviceData) {
           value_template: '{{ value_json.logged_users_count }}', 
           state_class: 'measurement' },
 
-        users_list: { 
+  users_list: { 
           platform: 'sensor', 
           name: 'Logged Users', 
           unique_id: `ha_agent_${deviceId}_users_list`,
@@ -123,18 +123,29 @@ function getDiscoveryConfig(deviceData) {
           state_topic: stateTopic, 
           value_template: '{{ value_json.logged_users }}' },
 
-        cpu_percent: { 
+        disk_percent: { 
           platform: 'sensor', 
-          name: 'CPU Usage', 
-          unique_id: `ha_agent_${deviceId}_cpu_percent`,
-          object_id: `${object_id}_cpu_percent`,
-          icon: 'mdi:cpu-64-bit', 
+          name: 'Disk Usage', 
+          unique_id: `ha_agent_${deviceId}_disk_percent`, 
+          object_id: `${object_id}_disk_percent`, 
+          icon: 'mdi:harddisk', 
           unit_of_measurement: '%', 
           state_topic: sensorsTopic, 
-          value_template: '{{ value_json.cpu_percent }}', 
-          state_class: 'measurement' },
-
-        ram_percent: { 
+          value_template: '{{ value_json.disk_percent }}', 
+          state_class: 'measurement' 
+        },
+        session_locked: {
+          platform: 'binary_sensor',
+          name: 'Session Locked',
+          unique_id: `ha_agent_${deviceId}_session_locked`,
+          object_id: `${object_id}_session_locked`,
+          device_class: 'lock',
+          state_topic: stateTopic,
+          value_template: '{{ value_json.session_locked }}',
+          payload_on: true,
+          payload_off: false
+        }
+    };
           platform: 'sensor', 
           name: 'Memory Usage', 
           unique_id: `ha_agent_${deviceId}_ram_percent`,
@@ -146,6 +157,18 @@ function getDiscoveryConfig(deviceData) {
           state_class: 'measurement' },
 
         disk_percent: { 
+        ,
+        session_locked: {
+          platform: 'binary_sensor',
+          name: 'Session Locked',
+          unique_id: `ha_agent_${deviceId}_session_locked`,
+          object_id: `${object_id}_session_locked`,
+          device_class: 'lock',
+          state_topic: stateTopic,
+          value_template: '{{ value_json.session_locked }}',
+          payload_on: true,
+          payload_off: false
+        }
           platform: 'sensor', 
           name: 'Disk Usage', 
           unique_id: `ha_agent_${deviceId}_disk_percent`,
@@ -261,6 +284,7 @@ app.post('/ha-agent', (req, res) => {
         users_logged_in: data.users_logged_in,
         logged_users_count: data.logged_users_count,
         logged_users: data.logged_users,
+        session_locked: data.session_locked
       };
       client.publish(stateTopic, JSON.stringify(statePayload));
 
