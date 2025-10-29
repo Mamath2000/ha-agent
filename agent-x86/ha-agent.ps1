@@ -83,17 +83,23 @@ function Get-SystemData {
         }
     } catch {}
 
-    # --- Détection de session verrouillée/déverrouillée (méthode fiable WMI) ---
+    # --- Détection de session verrouillée/déverrouillée (LogonUI) ---
+    $sessionLockState = "Unknown"
     $isLocked = $false
     try {
-        $session = Get-WmiObject -Class Win32_ComputerSystem | Select-Object -ExpandProperty UserName
-        if (-not $session) {
+        $logonUI = Get-Process -Name LogonUI -ErrorAction SilentlyContinue
+        if ($logonUI) {
+            $sessionLockState = "Locked"
             $isLocked = $true
+        } else {
+            $sessionLockState = "Unlocked"
+            $isLocked = $false
         }
     } catch {
+        $sessionLockState = "Unknown"
         $isLocked = $false
     }
-    Write-Host "[DEBUG] session_locked détecté : $isLocked"
+    Write-Host "[DEBUG] session_locked détecté (LogonUI): $sessionLockState ($isLocked)"
 
     # --- Capteurs système ---
     $stats = @{}
@@ -140,6 +146,7 @@ function Get-SystemData {
         logged_users_count = $users.Count
         logged_users = ($users -join ",")
         session_locked = $isLocked
+        session_locked_state = $sessionLockState
         sensors = $stats
     }
 
