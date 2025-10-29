@@ -83,42 +83,17 @@ function Get-SystemData {
         }
     } catch {}
 
-    # --- Détection de session verrouillée/déverrouillée (méthode WTS) ---
-    $isLocked = $null
+    # --- Détection de session verrouillée/déverrouillée (méthode fiable WMI) ---
+    $isLocked = $false
     try {
-        Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class SessionLockCheck {
-    [DllImport("wtsapi32.dll", SetLastError = true)]
-    public static extern bool WTSQuerySessionInformation(IntPtr hServer, int sessionId, int infoClass, out IntPtr buffer, out int bytesReturned);
-    [DllImport("wtsapi32.dll", SetLastError = true)]
-    public static extern void WTSFreeMemory(IntPtr memory);
-    public static string GetSessionState() {
-        IntPtr buffer;
-        int bytesReturned;
-        // 0x7 = WTSConnectState
-        if (WTSQuerySessionInformation(IntPtr.Zero, -1, 7, out buffer, out bytesReturned)) {
-            int state = Marshal.ReadInt32(buffer);
-            WTSFreeMemory(buffer);
-            return state.ToString();
-        }
-        return null;
-    }
-}
-"@
-        $state = [SessionLockCheck]::GetSessionState()
-        # 0 = Active, 1 = Connected, 2 = ConnectQuery, 3 = Shadow, 4 = Disconnected, 5 = Idle, 6 = Listen, 7 = Reset, 8 = Down, 9 = Init, 0x1000 = Locked
-        if ($state -eq "0") {
-            $isLocked = $false
-        } elseif ($state -eq "0x1000" -or $state -eq "8") {
+        $session = Get-WmiObject -Class Win32_ComputerSystem | Select-Object -ExpandProperty UserName
+        if (-not $session) {
             $isLocked = $true
-        } else {
-            $isLocked = $null
         }
     } catch {
-        $isLocked = $null
+        $isLocked = $false
     }
+    Write-Host "[DEBUG] session_locked détecté : $isLocked"
 
     # --- Capteurs système ---
     $stats = @{}
