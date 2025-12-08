@@ -62,21 +62,22 @@ setInterval(() => {
 // LOGIQUE DE DÉCOUVERTE (inspirée de votre script original)
 // =============================================================================
 function getDiscoveryConfig(deviceData) {
-    const deviceId = deviceData.device_id;
-    const hostname = deviceData.hostname;
-    const object_id = hostname.replace(/\s+/g, '_').toLowerCase();
+    const hostname = (deviceData.hostname).trim();
+    const objectId = hostname
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'ha_agent_device';
 
-    const stateTopic = `${BASE_TOPIC}/${deviceId}/state`;
-    const sensorsTopic = `${BASE_TOPIC}/${deviceId}/sensors`;
-    const availabilityTopic = `${BASE_TOPIC}/${deviceId}/status`;
+    const stateTopic = `${BASE_TOPIC}/${objectId}/state`;
+    const sensorsTopic = `${BASE_TOPIC}/${objectId}/sensors`;
+    const availabilityTopic = `${BASE_TOPIC}/${objectId}/status`;
 
     const device = {
-        identifiers: [`ha_agent_${deviceId}`],
+        identifiers: [`ha_agent_${objectId}`],
         name: hostname,
         model: "Windows PC Agent",
         manufacturer: "Node.js Hook",
-        sw_version: "1.0.0",
-        connections: deviceData.mac_address ? [["mac", deviceData.mac_address]] : [],
+        sw_version: "1.0.0"
     };
 
     // Définition de tous les capteurs
@@ -84,8 +85,8 @@ function getDiscoveryConfig(deviceData) {
         pc_running: {
             platform: 'binary_sensor',
             name: 'Running',
-            unique_id: `ha_agent_${deviceId}_pc_running`,
-            object_id: `${object_id}_pc_running`,
+            unique_id: `ha_agent_${objectId}_pc_running`,
+            object_id: `${objectId}_pc_running`,
             device_class: 'running',
             state_topic: availabilityTopic,
             availability: [],
@@ -95,8 +96,8 @@ function getDiscoveryConfig(deviceData) {
         users_logged_in: {
             platform: 'binary_sensor',
             name: 'Users Logged In',
-            unique_id: `ha_agent_${deviceId}_users_logged_in`,
-            object_id: `${object_id}_users_logged_in`,
+            unique_id: `ha_agent_${objectId}_users_logged_in`,
+            object_id: `${objectId}_users_logged_in`,
             device_class: 'occupancy',
             state_topic: stateTopic,
             value_template: '{{ value_json.users_logged_in }}',
@@ -106,8 +107,8 @@ function getDiscoveryConfig(deviceData) {
         users_count: {
             platform: 'sensor',
             name: 'Users Count',
-            unique_id: `ha_agent_${deviceId}_users_count`,
-            object_id: `${object_id}_users_count`,
+            unique_id: `ha_agent_${objectId}_users_count`,
+            object_id: `${objectId}_users_count`,
             icon: 'mdi:account-group',
             state_topic: stateTopic,
             value_template: '{{ value_json.logged_users_count }}',
@@ -116,8 +117,8 @@ function getDiscoveryConfig(deviceData) {
         users_list: {
             platform: 'sensor',
             name: 'Logged Users',
-            unique_id: `ha_agent_${deviceId}_users_list`,
-            object_id: `${object_id}_users_list`,
+            unique_id: `ha_agent_${objectId}_users_list`,
+            object_id: `${objectId}_users_list`,
             icon: 'mdi:account-details',
             state_topic: stateTopic,
             value_template: '{{ value_json.logged_users }}'
@@ -125,8 +126,8 @@ function getDiscoveryConfig(deviceData) {
         ram_percent: {
             platform: 'sensor',
             name: 'Memory Usage',
-            unique_id: `ha_agent_${deviceId}_ram_percent`,
-            object_id: `${object_id}_ram_percent`,
+            unique_id: `ha_agent_${objectId}_ram_percent`,
+            object_id: `${objectId}_ram_percent`,
             icon: 'mdi:memory',
             unit_of_measurement: '%',
             state_topic: sensorsTopic,
@@ -136,8 +137,8 @@ function getDiscoveryConfig(deviceData) {
         disk_percent: {
             platform: 'sensor',
             name: 'Disk Usage',
-            unique_id: `ha_agent_${deviceId}_disk_percent`,
-            object_id: `${object_id}_disk_percent`,
+            unique_id: `ha_agent_${objectId}_disk_percent`,
+            object_id: `${objectId}_disk_percent`,
             icon: 'mdi:harddisk',
             unit_of_measurement: '%',
             state_topic: sensorsTopic,
@@ -147,8 +148,8 @@ function getDiscoveryConfig(deviceData) {
         session_locked: {
             platform: 'binary_sensor',
             name: 'Session Locked',
-            unique_id: `ha_agent_${deviceId}_session_locked`,
-            object_id: `${object_id}_session_locked`,
+            unique_id: `ha_agent_${objectId}_session_locked`,
+            object_id: `${objectId}_session_locked`,
             device_class: 'lock',
             state_topic: stateTopic,
             value_template: '{{ value_json.session_locked }}',
@@ -158,8 +159,8 @@ function getDiscoveryConfig(deviceData) {
         interactive: {
             platform: 'binary_sensor',
             name: 'Interactive',
-            unique_id: `ha_agent_${deviceId}_interactive`,
-            object_id: `${object_id}_interactive`,
+            unique_id: `ha_agent_${objectId}_interactive`,
+            object_id: `${objectId}_interactive`,
             // device_class: 'lock',
             state_topic: stateTopic,
             value_template: '{{ value_json.session_locked and value_json.users_logged_in }}',
@@ -221,45 +222,50 @@ app.post('/ha-agent', (req, res) => {
             return res.status(400).send('Données invalides, device_id manquant.');
         }
 
-        const deviceId = data.device_id;
+        const hostname = (data.hostname).trim();
+        const objectId = hostname
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '') || 'ha_agent_device';
+
         const now = Date.now();
 
         // Mettre à jour le statut et le timestamp de l'appareil
-        if (!deviceStatus[deviceId]) {
-            deviceStatus[deviceId] = {
+        if (!deviceStatus[objectId]) {
+            deviceStatus[objectId] = {
                 lastSeen: now,
                 status: 'online',
                 lastDiscovery: 0 // 0 pour forcer la publication au premier contact
             };
         } else {
-            deviceStatus[deviceId].lastSeen = now;
-            deviceStatus[deviceId].status = 'online';
+            deviceStatus[objectId].lastSeen = now;
+            deviceStatus[objectId].status = 'online';
         }
 
 
         // --- 1. Publication de la découverte (première fois ou toutes les 6 heures) ---
-        const shouldPublishDiscovery = (now - deviceStatus[deviceId].lastDiscovery) > DISCOVERY_INTERVAL;
+        const shouldPublishDiscovery = (now - deviceStatus[objectId].lastDiscovery) > DISCOVERY_INTERVAL;
 
         if (shouldPublishDiscovery) {
-            console.log(`Publication de la découverte pour ${deviceId}...`);
+            console.log(`Publication de la découverte pour ${objectId}...`);
             const discoveryConfigs = getDiscoveryConfig(data);
-            const discoveryTopic = `homeassistant/device/ha-agent/${deviceId}/config`;
+            const discoveryTopic = `homeassistant/device/ha-agent/${objectId}/config`;
 
 
             client.publish(discoveryTopic, JSON.stringify(discoveryConfigs), { retain: true }, (err) => {
                 if (err) {
-                    console.error(`Erreur lors de la publication de la découverte pour ${deviceId}:`, err);
+                    console.error(`Erreur lors de la publication de la découverte pour ${objectId}:`, err);
                 }
             });
 
-            deviceStatus[deviceId].lastDiscovery = now;
-            console.log(`Découverte publiée pour ${deviceId}.`);
+            deviceStatus[objectId].lastDiscovery = now;
+            console.log(`Découverte publiée pour ${objectId}.`);
         }
 
         // --- 2. Publication de la disponibilité et des états ---
-        const availabilityTopic = `${BASE_TOPIC}/${deviceId}/status`;
-        const stateTopic = `${BASE_TOPIC}/${deviceId}/state`;
-        const sensorsTopic = `${BASE_TOPIC}/${deviceId}/sensors`;
+        const availabilityTopic = `${BASE_TOPIC}/${objectId}/status`;
+        const stateTopic = `${BASE_TOPIC}/${objectId}/state`;
+        const sensorsTopic = `${BASE_TOPIC}/${objectId}/sensors`;
 
         // Toujours publier la disponibilité 'online' quand on reçoit des données
         client.publish(availabilityTopic, 'online', { retain: true });
@@ -279,16 +285,16 @@ app.post('/ha-agent', (req, res) => {
             if (data.sensors) {
                 client.publish(sensorsTopic, JSON.stringify(data.sensors));
             }
-            console.log(`Données d'état complètes reçues et publiées pour ${deviceId}`);
+            console.log(`Données d'état complètes reçues et publiées pour ${objectId}`);
         }
         // Gérer le cas d'une erreur remontée par l'agent
         else if (data.status === 'error') {
-            console.error(`Erreur remontée par l'agent ${deviceId}: ${data.error}`);
+            console.error(`Erreur remontée par l'agent ${objectId}: ${data.error}`);
             // Ici, vous pourriez publier sur un topic d'erreur spécifique si nécessaire
         }
         // C'est un simple ping, on ne fait rien de plus
         else {
-            console.log(`Ping reçu de ${deviceId}.`);
+            console.log(`Ping reçu de ${objectId}.`);
         }
 
         res.status(200).send('Données reçues');
