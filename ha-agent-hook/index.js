@@ -64,6 +64,7 @@ let pairingTimer = null;
 const HOOK_STATUS_TOPIC = `${BASE_TOPIC}/hook/status`;
 const PAIRING_COMMAND_TOPIC = `${BASE_TOPIC}/hook/pairing/set`;
 const PAIRING_STATE_TOPIC = `${BASE_TOPIC}/hook/pairing/state`;
+const HOOK_VERSION_TOPIC = `${BASE_TOPIC}/hook/version`;
 
 const mqttOptions = {
     username: MQTT_USERNAME,
@@ -139,13 +140,15 @@ function publishPairingState() {
 }
 
 function publishHookDiscovery() {
+    const version = require('./package.json').version;
+
     const discoveryConfig = {
         device: {
             identifiers: ['ha_agent_hook'],
             name: 'HA-Agent Hook',
             model: 'Webhook Bridge',
             manufacturer: 'Node.js Hook',
-            sw_version: require('./package.json').version
+            sw_version: version
         },
         origin: { name: 'HA-Agent Hook' },
         availability: [
@@ -161,12 +164,20 @@ function publishHookDiscovery() {
                 state_topic: PAIRING_STATE_TOPIC,
                 payload_on: 'ON',
                 payload_off: 'OFF'
+            },
+            docker_version: {
+                platform: 'sensor',
+                name: 'Docker Version',
+                unique_id: 'ha_agent_hook_docker_version',
+                icon: 'mdi:docker',
+                state_topic: HOOK_VERSION_TOPIC
             }
         }
     };
 
     const discoveryTopic = `homeassistant/device/ha-agent/hook/config`;
     client.publish(discoveryTopic, JSON.stringify(discoveryConfig), { retain: true });
+    client.publish(HOOK_VERSION_TOPIC, version, { retain: true });
 }
 
 // =============================================================================
