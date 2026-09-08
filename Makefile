@@ -1,4 +1,4 @@
-.PHONY: help up down build push logs restart clean
+.PHONY: help up down build push logs restart clean run-local
 
 # Configuration
 COMPOSE_FILE = ha-agent-hook/docker-compose.yml
@@ -27,6 +27,10 @@ logs: ## Afficher les logs du webhook
 	cd ha-agent-hook && docker compose logs -f
 
 restart: down up ## Redémarrer le webhook
+
+run-local: ## Lancer le webhook en local sans Docker (node + npm install)
+	@echo "🚀 Démarrage local de ha-agent-hook (sans Docker)..."
+	cd ha-agent-hook && npm install && node index.js
 
 clean: down ## Arrêter et nettoyer les conteneurs
 	@echo "🧹 Nettoyage..."

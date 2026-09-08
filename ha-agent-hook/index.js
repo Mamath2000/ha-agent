@@ -149,7 +149,7 @@ function publishHookDiscovery() {
         },
         origin: { name: 'HA-Agent Hook' },
         availability: [
-            { topic: HOOK_STATUS_TOPIC, payload_on: 'online', payload_off: 'offline' }
+            { topic: HOOK_STATUS_TOPIC, payload_available: 'online', payload_not_available: 'offline' }
         ],
         components: {
             pairing_mode: {
@@ -280,7 +280,7 @@ function getDiscoveryConfig(hostname, objectId) {
         device: device,
         origin: { name: "HA-Agent Hook" },
         availability: [
-            { topic: availabilityTopic, payload_on: 'online', payload_off: 'offline' }
+            { topic: availabilityTopic, payload_available: 'online', payload_not_available: 'offline' }
         ],
         availability_mode: "all",
         components: components
